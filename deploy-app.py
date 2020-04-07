@@ -78,7 +78,7 @@ def get_mc(console, username, password):
     return mc
 
 def main(args):
-    for envvar in ("MOBILEDGEX_USERNAME", "MOBILEDGEX_PASSWORD"):
+    for envvar in ("INPUT_USERNAME", "INPUT_PASSWORD"):
         if not os.getenv(envvar):
             die(f"Mandatory variable not set: {envvar}")
 
@@ -91,8 +91,8 @@ def main(args):
     else:
         console = f"https://console-{args.setup}.mobiledgex.net"
 
-    mc = get_mc(console, username=os.getenv("MOBILEDGEX_USERNAME"),
-		password=os.getenv("MOBILEDGEX_PASSWORD"))
+    mc = get_mc(console, username=os.getenv("INPUT_USERNAME"),
+		password=os.getenv("INPUT_PASSWORD"))
 
     # Create App
     mc("ctrl/CreateApp", data={
@@ -103,7 +103,7 @@ def main(args):
                 "organization": args.apporg,
                 "version": version
             },
-            "image_path": args.imagepath,
+            "image_path": f"{args.imagepath}:{version}",
             "image_type": 1,
             "access_ports": args.accessports,
             "default_flavor": {

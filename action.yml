@@ -6,6 +6,12 @@ inputs:
     description: The setup to deploy the app to
     required: true
     default: stage
+  username:
+    description: Console username
+    required: true
+  password:
+    description: Console password
+    required: true
   appname:
     description: Name of the app
     required: true
