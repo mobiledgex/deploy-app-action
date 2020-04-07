@@ -1,0 +1,19 @@
+name: "MobiledgeX Deploy"
+description: "Deploy app to the MobiledgeX platform"
+inputs:
+  setup:
+    description: The setup to deploy the app to
+    required: true
+    default: stage
+  output:
+    setup:
+      description: Set the app is deployed in
+    version:
+      description: Version of app deployed
+
+runs:
+  using: docker
+  image: Dockerfile
+  args:
+    - "--setup"
+    - ${{ inputs.setup }}
