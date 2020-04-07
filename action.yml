@@ -1,15 +1,35 @@
 name: "MobiledgeX Deploy"
 description: "Deploy app to the MobiledgeX platform"
+
 inputs:
   setup:
     description: The setup to deploy the app to
     required: true
     default: stage
-  output:
-    setup:
-      description: Set the app is deployed in
-    version:
-      description: Version of app deployed
+  appname:
+    description: Name of the app
+    required: true
+  app-org:
+    description: App organization
+    required: true
+  region:
+    description: App region
+    required: true
+  imagepath:
+    description: Path to the docker image
+    required: true
+  accessports:
+    description: List of accewss ports
+    required: true
+  defaultflavor:
+    description: Default flavor
+    required: true
+
+outputs:
+  setup:
+    description: Set the app is deployed in
+  version:
+    description: Version of app deployed
 
 runs:
   using: docker
@@ -17,3 +37,9 @@ runs:
   args:
     - "--setup"
     - ${{ inputs.setup }}
+    - ${{ inputs.appname }}
+    - ${{ inputs.app-org }}
+    - ${{ inputs.region }}
+    - ${{ inputs.imagepath }}
+    - ${{ inputs.accessports }}
+    - ${{ inputs.defaultflavor }}
