@@ -36,9 +36,9 @@ inputs:
 
 outputs:
   setup:
-    description: Set the app is deployed in
-  version:
-    description: Version of app deployed
+    description: Setup the app is deployed in
+  image:
+    description: Image path for the app
 
 runs:
   using: docker
