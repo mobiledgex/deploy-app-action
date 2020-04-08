@@ -16,7 +16,7 @@ def die(msg, rc=2):
 def set_output(name, value):
     print(f"::set-output name={name}::{value}")
 
-def get_version():
+def get_image_revision():
     ref = os.getenv('GITHUB_REF')
     if ref == "refs/heads/master":
         return "latest"
@@ -24,10 +24,10 @@ def get_version():
         return ref.split("/")[-1]
     else:
         tokens = ref.split("/")
-        version = "-".join(tokens[2:])
+        imagerev = "-".join(tokens[2:])
         if tokens[1] == "pull":
-            version = "pr-" + version
-        return version
+            imagerev = "pr-" + imagerev
+        return imagerev
 
 def load_response(r, stream=False):
     items = r.text.splitlines() if stream else [ r.text ]
@@ -82,8 +82,9 @@ def main(args):
         if not os.getenv(envvar):
             die(f"Mandatory variable not set: {envvar}")
 
-    version = get_version()
-    set_output("version", version)
+    imagerev = get_image_revision()
+    image = f"{args.imagepath}:{imagerev}"
+    set_output("image", image)
     set_output("setup", args.setup)
 
     if args.setup == "main":
@@ -101,9 +102,9 @@ def main(args):
             "key": {
                 "name": args.appname,
                 "organization": args.apporg,
-                "version": version
+                "version": args.appvers
             },
-            "image_path": f"{args.imagepath}:{version}",
+            "image_path": image,
             "image_type": 1,
             "access_ports": args.accessports,
             "default_flavor": {
@@ -114,7 +115,8 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("appname", help="Name of this app")
+    parser.add_argument("appname", help="Name of the app")
+    parser.add_argument("appvers", help="Version of the app")
     parser.add_argument("apporg", help="Organization the app belongs to")
     parser.add_argument("region", help="Region to deploy to")
     parser.add_argument("imagepath", help="Docker image path")
