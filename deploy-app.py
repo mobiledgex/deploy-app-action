@@ -9,6 +9,12 @@ import sys
 
 logging.basicConfig(format="[%(levelname)s] %(message)s")
 
+field_map = (
+    (lambda x: x["image_path"], "4"),
+    (lambda x: x["access_ports"], "7"),
+    (lambda x: x["default_flavor"]["name"], "9"),
+)
+
 def die(msg, rc=2):
     print(f"::error::{msg}")
     sys.exit(rc)
@@ -28,6 +34,14 @@ def get_image_revision():
         if tokens[1] == "pull":
             imagerev = "pr-" + imagerev
         return imagerev
+
+def app_diff(oldapp, newapp):
+    fields = []
+    for (field, field_id) in field_map:
+        if field(oldapp) != field(newapp):
+            fields.append(field_id)
+
+    return fields
 
 def load_response(r, stream=False):
     items = r.text.splitlines() if stream else [ r.text ]
@@ -95,15 +109,17 @@ def main(args):
     mc = get_mc(console, username=os.getenv("INPUT_USERNAME"),
 		password=os.getenv("INPUT_PASSWORD"))
 
-    # Create App
-    mc("ctrl/CreateApp", data={
+    # Get App
+    appkey = {
+        "name": args.appname,
+        "organization": args.apporg,
+        "version": args.appvers,
+    }
+
+    data = {
         "region": args.region,
         "app": {
-            "key": {
-                "name": args.appname,
-                "organization": args.apporg,
-                "version": args.appvers
-            },
+            "key": appkey,
             "image_path": image,
             "image_type": 1,
             "access_ports": args.accessports,
@@ -111,7 +127,26 @@ def main(args):
                 "name": args.defaultflavor
             }
         }
+    }
+
+    # Check if app exists
+    app = mc("ctrl/ShowApp", data={
+        "region": args.region,
+        "app": { "key": appkey },
     })
+
+    if app:
+        logging.info(f"Updating existing app: {appkey}")
+        action = "UpdateApp"
+        data["app"]["fields"] = app_diff(app, data["app"])
+    else:
+        logging.info(f"Creating new app: {appkey}")
+        action = "CreateApp"
+
+    set_output("action", action)
+
+    # Create/update app
+    mc(f"ctrl/{action}", data=data)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
