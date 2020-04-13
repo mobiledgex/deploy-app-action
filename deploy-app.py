@@ -130,6 +130,7 @@ logger = get_logger()
 
 def main(args):
     actions = []
+    deployments = []
     for envvar in ("INPUT_USERNAME", "INPUT_PASSWORD"):
         if not os.getenv(envvar):
             die(f"Mandatory variable not set: {envvar}")
@@ -235,7 +236,10 @@ def main(args):
             if check_status(resp):
                 logger.debug(f"Created app inst {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
 
+        deployments.append(f"{cloudletname}:{cloudletorg}:{clustername}:{cloudletorg}")
+
     set_output("actions", ",".join(actions))
+    set_output("deployments", ",".join(deployments))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
