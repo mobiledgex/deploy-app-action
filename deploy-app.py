@@ -188,6 +188,9 @@ def main(args):
     mc(f"ctrl/{action}", data=data)
 
     for clustertuple in args.clustertuple.split(","):
+        if not clustertuple:
+            continue
+        actions.append("DeployApp")
         tokens = clustertuple.split(":")
         cloudletname = tokens.pop(0)
         cloudletorg = tokens.pop(0)
