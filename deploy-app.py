@@ -7,13 +7,32 @@ import os
 import requests
 import sys
 
-logging.basicConfig(format="[%(levelname)s] %(message)s")
-
 field_map = (
     (lambda x: x["image_path"], "4"),
     (lambda x: x["access_ports"], "7"),
     (lambda x: x["default_flavor"]["name"], "9"),
 )
+
+def get_logger():
+    class GithubActionFormatter(logging.Formatter):
+        def format(self, rec):
+            if rec.levelname in ("DEBUG", "WARNING", "ERROR"):
+                msg = f"::{rec.levelname.lower()} " \
+                      f"file={rec.filename},line={rec.lineno}::{rec.msg}"
+                return msg.replace("\n", "|")
+            else:
+                return super(GithubActionFormatter, self).format(rec)
+
+    logger = logging.getLogger(__file__)
+    ch = logging.StreamHandler()
+    formatter = GithubActionFormatter("[%(levelname)s] %(message)s")
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+
+    if os.getenv("ACTIONS_STEP_DEBUG") == "true":
+        logger.setLevel(logging.DEBUG)
+
+    return logger
 
 def die(msg, rc=2):
     print(f"::error::{msg}")
@@ -57,13 +76,14 @@ def get_mc(console, username, password):
     r = requests.post(f"{console}/api/v1/login",
                       json={"username": username, "password": password})
     if r.status_code != requests.codes.ok:
-        logging.critical(f"MC login failed: {console}: {r.status_code} {r.text}")
+        logger.critical(f"MC login failed: {console}: {r.status_code} {r.text}")
         die(f"Failed to log in to the console: {console}")
 
     token = r.json()["token"]
     apibase = f"{console}/api/v1/auth"
 
-    def mc(path, method="POST", headers={}, data={}, **kwargs):
+    def mc(path, method="POST", headers={}, data={},
+           success_codes=[requests.codes.ok], **kwargs):
         req_hdrs = {
             "Accept": "application/json",
             "Authorization": f"Bearer {token}",
@@ -77,8 +97,8 @@ def get_mc(console, username, password):
         r = requests.request(method, f"{apibase}/{path}",
                              headers=req_hdrs,
                              json=req_data)
-        if r.status_code != requests.codes.ok:
-            logging.critical(f"MC call failed: {console} {path}: {r.status_code} {r.text}")
+        if r.status_code not in success_codes:
+            logger.critical(f"MC call failed: {console} {path}: {r.status_code} {r.text}")
             die(f"MC call failed: {path}, {r.status_code}")
 
         try:
@@ -91,7 +111,25 @@ def get_mc(console, username, password):
 
     return mc
 
+def check_status(resp):
+    success = True
+    if isinstance(resp, list):
+        for item in resp:
+            if "message" in item:
+                logger.debug(item["message"])
+            if "result" in item:
+                code = int(item["result"].get("code"))
+                if code != requests.codes.ok:
+                    logger.error(item["result"].get("message") or f"Error: {code}")
+                    success = False
+                else:
+                    logger.debug(item["result"].get("message"))
+    return success
+
+logger = get_logger()
+
 def main(args):
+    actions = []
     for envvar in ("INPUT_USERNAME", "INPUT_PASSWORD"):
         if not os.getenv(envvar):
             die(f"Mandatory variable not set: {envvar}")
@@ -115,6 +153,7 @@ def main(args):
         "organization": args.apporg,
         "version": args.appvers,
     }
+    logger.debug(f"App key = {appkey}")
 
     data = {
         "region": args.region,
@@ -124,10 +163,11 @@ def main(args):
             "image_type": 1,
             "access_ports": args.accessports,
             "default_flavor": {
-                "name": args.defaultflavor
+                "name": args.flavor
             }
         }
     }
+    logger.debug(f"App data = {data}")
 
     # Check if app exists
     app = mc("ctrl/ShowApp", data={
@@ -136,27 +176,75 @@ def main(args):
     })
 
     if app:
-        logging.info(f"Updating existing app: {appkey}")
+        logger.info(f"Updating existing app: {appkey}")
         action = "UpdateApp"
         data["app"]["fields"] = app_diff(app, data["app"])
     else:
-        logging.info(f"Creating new app: {appkey}")
+        logger.info(f"Creating new app: {appkey}")
         action = "CreateApp"
 
-    set_output("action", action)
-
     # Create/update app
+    actions.append(action)
     mc(f"ctrl/{action}", data=data)
 
+    for clustertuple in args.clustertuple.split(","):
+        tokens = clustertuple.split(":")
+        cloudletname = tokens.pop(0)
+        cloudletorg = tokens.pop(0)
+        clustername = tokens.pop(0) if tokens else "autocluster"
+        clusterorg = tokens.pop(0) if tokens else args.apporg
+
+        appinst = mc("ctrl/ShowAppInst", data={
+            "region": args.region,
+            "appinst": {
+            },
+        })
+
+        logger.debug(f"Creating app in {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
+        data={
+            "region": args.region,
+            "appinst": {
+                "key": {
+                    "app_key": appkey,
+                    "cluster_inst_key": {
+                        "cloudlet_key": {
+                            "name": cloudletname,
+                            "organization": cloudletorg,
+                        },
+                        "cluster_key": {
+                            "name": clustername,
+                        },
+                        "organization": clusterorg,
+                    },
+                },
+            },
+        }
+
+        appinst = mc("ctrl/ShowAppInst", data=data)
+        if appinst:
+            logger.info(f"Updating app instance {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
+            resp = mc("ctrl/RefreshAppInst", data=data)
+            if check_status(resp):
+                logger.debug(f"Updated app inst {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
+        else:
+            logger.info(f"Creating new app instance {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
+            resp = mc("ctrl/CreateAppInst", data=data)
+            if check_status(resp):
+                logger.debug(f"Created app inst {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
+
+    set_output("actions", ",".join(actions))
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("appname", help="Name of the app")
     parser.add_argument("appvers", help="Version of the app")
     parser.add_argument("apporg", help="Organization the app belongs to")
     parser.add_argument("region", help="Region to deploy to")
     parser.add_argument("imagepath", help="Docker image path")
     parser.add_argument("accessports", help="Access ports")
-    parser.add_argument("defaultflavor", help="Default flavor")
+    parser.add_argument("flavor", help="Flavor")
+    parser.add_argument("--clustertuple", help="List of clusters/cloudlets to deploy app to")
     parser.add_argument("--setup", "-s", help="Setup to deploy app to",
                         default="main")
     args = parser.parse_args()

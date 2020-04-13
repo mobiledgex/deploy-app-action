@@ -30,9 +30,12 @@ inputs:
   accessports:
     description: List of access ports
     required: true
-  defaultflavor:
-    description: Default flavor
+  flavor:
+    description: Flavor
     required: true
+  clustertuple:
+    description: "Comma-separated list of clusters (eg: \"frankfurt-main:TDG:myCluster:myOrg\")"
+    required: false
 
 outputs:
   setup:
@@ -44,12 +47,14 @@ runs:
   using: docker
   image: Dockerfile
   args:
-    - "--setup"
-    - ${{ inputs.setup }}
     - ${{ inputs.appname }}
     - ${{ inputs.appvers }}
     - ${{ inputs.app-org }}
     - ${{ inputs.region }}
     - ${{ inputs.imagepath }}
     - ${{ inputs.accessports }}
-    - ${{ inputs.defaultflavor }}
+    - ${{ inputs.flavor }}
+    - "--setup"
+    - ${{ inputs.setup }}
+    - "--clustertuple"
+    - ${{ inputs.clustertuple }}
