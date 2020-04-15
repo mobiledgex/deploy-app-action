@@ -25,7 +25,7 @@ def get_logger():
                 return super(GithubActionFormatter, self).format(rec)
 
     logger = logging.getLogger(__file__)
-    ch = logging.StreamHandler()
+    ch = logging.StreamHandler(sys.stdout)
     formatter = GithubActionFormatter("[%(levelname)s] %(message)s")
     ch.setFormatter(formatter)
     logger.addHandler(ch)
