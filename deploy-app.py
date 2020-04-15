@@ -77,7 +77,7 @@ def get_mc(console, username, password):
     r = requests.post(f"{console}/api/v1/login",
                       json={"username": username, "password": password})
     if r.status_code != requests.codes.ok:
-        logger.critical(f"MC login failed: {console}: {r.status_code} {r.text}")
+        print(f"MC login failed: {console}: {r.status_code} {r.text}")
         die(f"Failed to log in to the console: {console}")
 
     token = r.json()["token"]
@@ -99,7 +99,7 @@ def get_mc(console, username, password):
                              headers=req_hdrs,
                              json=req_data)
         if r.status_code not in success_codes:
-            logger.critical(f"MC call failed: {console} {path}: {r.status_code} {r.text}")
+            print(f"MC call failed: {console} {path}: {r.status_code} {r.text}")
             die(f"MC call failed: {path}, {r.status_code}")
 
         try:
@@ -121,7 +121,7 @@ def check_status(resp):
             if "result" in item:
                 code = int(item["result"].get("code"))
                 if code != requests.codes.ok:
-                    logger.error(item["result"].get("message") or f"Error: {code}")
+                    print(item["result"].get("message") or f"Error: {code}")
                     success = False
                 else:
                     logger.debug(item["result"].get("message"))
@@ -170,11 +170,11 @@ def main(args):
     })
 
     if existing_app:
-        logger.info(f"Updating existing app: {app_key}")
+        print(f"Updating existing app: {app_key}")
         action = "UpdateApp"
         app["app"]["fields"] = app_diff(existing_app, app["app"])
     else:
-        logger.info(f"Creating new app: {app_key}")
+        print(f"Creating new app: {app_key}")
         action = "CreateApp"
 
     # Create/update app
@@ -199,12 +199,12 @@ def main(args):
 
             existing_appinst = mc("ctrl/ShowAppInst", data=appinst)
             if existing_appinst:
-                logger.info(f"Updating app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                print(f"Updating app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
                 resp = mc("ctrl/RefreshAppInst", data=appinst)
                 if check_status(resp):
                     logger.debug(f"Updated app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
             else:
-                logger.info(f"Creating new app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                print(f"Creating new app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
                 resp = mc("ctrl/CreateAppInst", data=appinst)
                 if check_status(resp):
                     logger.debug(f"Created app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
