@@ -6,6 +6,7 @@ import logging
 import os
 import requests
 import sys
+import yaml
 
 field_map = (
     (lambda x: x["image_path"], "4"),
@@ -135,10 +136,24 @@ def main(args):
         if not os.getenv(envvar):
             die(f"Mandatory variable not set: {envvar}")
 
-    imagerev = get_image_revision()
-    image = f"{args.imagepath}:{imagerev}"
-    set_output("image", image)
+    if not os.path.exists(args.appconfig):
+        raise Exception(f"App instance definition not found: {args.appconfig}")
+
+    with open(args.appconfig) as f:
+        app = yaml.load(f, Loader=yaml.Loader)
+
+    try:
+        region = app["region"]
+        app_key = app["app"]["key"]
+        image_path = app["app"]["image_path"]
+        if ":" not in image_path:
+            image_rev = get_image_revision()
+            app["app"]["image_path"] = f"{image_path}:{image_rev}"
+    except Exception as e:
+        raise Exception(f"Failed to load app definition: {e}")
+
     set_output("setup", args.setup)
+    set_output("image", app["app"]["image_path"])
 
     if args.setup == "main":
         console = "https://console.mobiledgex.net"
@@ -148,95 +163,53 @@ def main(args):
     mc = get_mc(console, username=os.getenv("INPUT_USERNAME"),
 		password=os.getenv("INPUT_PASSWORD"))
 
-    # Get App
-    appkey = {
-        "name": args.appname,
-        "organization": args.apporg,
-        "version": args.appvers,
-    }
-    logger.debug(f"App key = {appkey}")
-
-    data = {
-        "region": args.region,
-        "app": {
-            "key": appkey,
-            "image_path": image,
-            "image_type": 1,
-            "access_ports": args.accessports,
-            "default_flavor": {
-                "name": args.flavor
-            }
-        }
-    }
-    logger.debug(f"App data = {data}")
-
     # Check if app exists
-    app = mc("ctrl/ShowApp", data={
-        "region": args.region,
-        "app": { "key": appkey },
+    existing_app = mc("ctrl/ShowApp", data={
+        "region": region,
+        "app": { "key": app_key },
     })
 
-    if app:
-        logger.info(f"Updating existing app: {appkey}")
+    if existing_app:
+        logger.info(f"Updating existing app: {app_key}")
         action = "UpdateApp"
-        data["app"]["fields"] = app_diff(app, data["app"])
+        app["app"]["fields"] = app_diff(existing_app, app["app"])
     else:
-        logger.info(f"Creating new app: {appkey}")
+        logger.info(f"Creating new app: {app_key}")
         action = "CreateApp"
 
     # Create/update app
     actions.append(action)
-    mc(f"ctrl/{action}", data=data)
+    mc(f"ctrl/{action}", data=app)
 
-    for clustertuple in args.clustertuple.split(","):
-        if not clustertuple:
-            continue
-        actions.append("DeployApp")
-        tokens = clustertuple.split(":")
-        cloudletname = tokens.pop(0)
-        cloudletorg = tokens.pop(0)
-        clustername = tokens.pop(0) if tokens else "autocluster"
-        clusterorg = tokens.pop(0) if tokens else args.apporg
+    if os.path.exists(args.appinstsconfig):
+        with open(args.appinstsconfig) as f:
+            appinsts = yaml.load(f, Loader=yaml.Loader)
 
-        appinst = mc("ctrl/ShowAppInst", data={
-            "region": args.region,
-            "appinst": {
-            },
-        })
+        for appinst in appinsts:
+            try:
+                appinst["region"] = region
+                appinst["appinst"]["key"]["app_key"] = app_key
+                clusterinst_key = appinst["appinst"]["key"]["cluster_inst_key"]
+                cluster_name = clusterinst_key["cluster_key"]["name"]
+                cluster_org = clusterinst_key.get("organization", app_key["organization"])
+                cloudlet_name = clusterinst_key["cloudlet_key"]["name"]
+                cloudlet_org = clusterinst_key["cloudlet_key"]["organization"]
+            except Exception as e:
+                raise Exception(f"Failed to load app instances definition: {e}")
 
-        logger.debug(f"Creating app in {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
-        data={
-            "region": args.region,
-            "appinst": {
-                "key": {
-                    "app_key": appkey,
-                    "cluster_inst_key": {
-                        "cloudlet_key": {
-                            "name": cloudletname,
-                            "organization": cloudletorg,
-                        },
-                        "cluster_key": {
-                            "name": clustername,
-                        },
-                        "organization": clusterorg,
-                    },
-                },
-            },
-        }
+            existing_appinst = mc("ctrl/ShowAppInst", data=appinst)
+            if existing_appinst:
+                logger.info(f"Updating app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                resp = mc("ctrl/RefreshAppInst", data=appinst)
+                if check_status(resp):
+                    logger.debug(f"Updated app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+            else:
+                logger.info(f"Creating new app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                resp = mc("ctrl/CreateAppInst", data=appinst)
+                if check_status(resp):
+                    logger.debug(f"Created app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
 
-        appinst = mc("ctrl/ShowAppInst", data=data)
-        if appinst:
-            logger.info(f"Updating app instance {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
-            resp = mc("ctrl/RefreshAppInst", data=data)
-            if check_status(resp):
-                logger.debug(f"Updated app inst {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
-        else:
-            logger.info(f"Creating new app instance {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
-            resp = mc("ctrl/CreateAppInst", data=data)
-            if check_status(resp):
-                logger.debug(f"Created app inst {clustername},{clusterorg} @ {cloudletname},{cloudletorg}")
-
-        deployments.append(f"{cloudletname}:{cloudletorg}:{clustername}:{cloudletorg}")
+            deployments.append(f"{cloudlet_name}:{cloudlet_org}:{cluster_name}:{cluster_org}")
 
     set_output("actions", ",".join(actions))
     set_output("deployments", ",".join(deployments))
@@ -244,14 +217,10 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("appname", help="Name of the app")
-    parser.add_argument("appvers", help="Version of the app")
-    parser.add_argument("apporg", help="Organization the app belongs to")
-    parser.add_argument("region", help="Region to deploy to")
-    parser.add_argument("imagepath", help="Docker image path")
-    parser.add_argument("accessports", help="Access ports")
-    parser.add_argument("flavor", help="Flavor")
-    parser.add_argument("--clustertuple", help="List of clusters/cloudlets to deploy app to")
+    parser.add_argument("--appconfig", help="Path to app config",
+                        default=".mobiledgex/app.yml")
+    parser.add_argument("--appinstsconfig", help="Path to app instances config",
+                        default=".mobiledgex/appinsts.yml")
     parser.add_argument("--setup", "-s", help="Setup to deploy app to",
                         default="main")
     args = parser.parse_args()

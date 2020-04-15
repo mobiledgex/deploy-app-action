@@ -5,41 +5,25 @@ inputs:
   setup:
     description: The setup to deploy the app to
     required: true
-    default: stage
+    default: main
   username:
     description: Console username
     required: true
   password:
     description: Console password
     required: true
-  appname:
-    description: Name of the app
+  appconfig:
+    description: Path to app config
     required: true
-  appvers:
-    description: Version of the app
+    default: .mobiledgex/app.yml
+  appinstsconfig:
+    description: Path to app instances config
     required: true
-  app-org:
-    description: App organization
-    required: true
-  region:
-    description: App region
-    required: true
-  imagepath:
-    description: Path to the docker image
-    required: true
-  accessports:
-    description: List of access ports
-    required: true
-  flavor:
-    description: Flavor
-    required: true
-  clustertuple:
-    description: "Comma-separated list of clusters (eg: \"fairview-main:GDDT:myCluster:myOrg\")"
-    required: false
+    default: .mobiledgex/appinsts.yml
 
 outputs:
   setup:
-    description: Setup the app is deployed in
+    description: Setup app is deployed in
   image:
     description: Image path for the app
   deployments:
@@ -49,14 +33,9 @@ runs:
   using: docker
   image: Dockerfile
   args:
-    - ${{ inputs.appname }}
-    - ${{ inputs.appvers }}
-    - ${{ inputs.app-org }}
-    - ${{ inputs.region }}
-    - ${{ inputs.imagepath }}
-    - ${{ inputs.accessports }}
-    - ${{ inputs.flavor }}
     - "--setup"
     - ${{ inputs.setup }}
-    - "--clustertuple"
-    - ${{ inputs.clustertuple }}
+    - "--appconfig"
+    - ${{ inputs.appconfig }}
+    - "--appinstsconfig"
+    - ${{ inputs.appinstsconfig }}
