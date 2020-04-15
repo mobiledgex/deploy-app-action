@@ -2,7 +2,6 @@
 
 import argparse
 import json
-import logging
 import os
 import requests
 import sys
@@ -14,26 +13,7 @@ field_map = (
     (lambda x: x["default_flavor"]["name"], "9"),
 )
 
-def get_logger():
-    class GithubActionFormatter(logging.Formatter):
-        def format(self, rec):
-            if rec.levelname in ("DEBUG", "WARNING", "ERROR"):
-                msg = f"::{rec.levelname.lower()} " \
-                      f"file={rec.filename},line={rec.lineno}::{rec.msg}"
-                return msg.replace("\n", "|")
-            else:
-                return super(GithubActionFormatter, self).format(rec)
-
-    logger = logging.getLogger(__file__)
-    ch = logging.StreamHandler(sys.stdout)
-    formatter = GithubActionFormatter("[%(levelname)s] %(message)s")
-    ch.setFormatter(formatter)
-    logger.addHandler(ch)
-
-    if os.getenv("ACTIONS_STEP_DEBUG") == "true":
-        logger.setLevel(logging.DEBUG)
-
-    return logger
+DEBUG = True if os.getenv("ACTIONS_STEP_DEBUG") == "true" else False
 
 def die(msg, rc=2):
     print(f"::error::{msg}")
@@ -41,6 +21,13 @@ def die(msg, rc=2):
 
 def set_output(name, value):
     print(f"::set-output name={name}::{value}")
+
+def log(msg):
+    print(msg, flush=True)
+
+def debug(msg):
+    if DEBUG:
+        print(f"::debug::{msg}", flush=True)
 
 def get_image_revision():
     ref = os.getenv('GITHUB_REF')
@@ -77,7 +64,7 @@ def get_mc(console, username, password):
     r = requests.post(f"{console}/api/v1/login",
                       json={"username": username, "password": password})
     if r.status_code != requests.codes.ok:
-        print(f"MC login failed: {console}: {r.status_code} {r.text}")
+        log(f"MC login failed: {console}: {r.status_code} {r.text}")
         die(f"Failed to log in to the console: {console}")
 
     token = r.json()["token"]
@@ -99,7 +86,7 @@ def get_mc(console, username, password):
                              headers=req_hdrs,
                              json=req_data)
         if r.status_code not in success_codes:
-            print(f"MC call failed: {console} {path}: {r.status_code} {r.text}")
+            log(f"MC call failed: {console} {path}: {r.status_code} {r.text}")
             die(f"MC call failed: {path}, {r.status_code}")
 
         try:
@@ -117,17 +104,15 @@ def check_status(resp):
     if isinstance(resp, list):
         for item in resp:
             if "message" in item:
-                logger.debug(item["message"])
+                debug(item["message"])
             if "result" in item:
                 code = int(item["result"].get("code"))
                 if code != requests.codes.ok:
-                    print(item["result"].get("message") or f"Error: {code}")
+                    log(item["result"].get("message") or f"Error: {code}")
                     success = False
                 else:
-                    logger.debug(item["result"].get("message"))
+                    debug(item["result"].get("message"))
     return success
-
-logger = get_logger()
 
 def main(args):
     actions = []
@@ -170,11 +155,11 @@ def main(args):
     })
 
     if existing_app:
-        print(f"Updating existing app: {app_key}")
+        log(f"Updating existing app: {app_key}")
         action = "UpdateApp"
         app["app"]["fields"] = app_diff(existing_app, app["app"])
     else:
-        print(f"Creating new app: {app_key}")
+        log(f"Creating new app: {app_key}")
         action = "CreateApp"
 
     # Create/update app
@@ -199,15 +184,15 @@ def main(args):
 
             existing_appinst = mc("ctrl/ShowAppInst", data=appinst)
             if existing_appinst:
-                print(f"Updating app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                log(f"Updating app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
                 resp = mc("ctrl/RefreshAppInst", data=appinst)
                 if check_status(resp):
-                    logger.debug(f"Updated app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                    debug(f"Updated app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
             else:
-                print(f"Creating new app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                log(f"Creating new app instance {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
                 resp = mc("ctrl/CreateAppInst", data=appinst)
                 if check_status(resp):
-                    logger.debug(f"Created app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
+                    debug(f"Created app inst {cluster_name},{cluster_org} @ {cloudlet_name},{cloudlet_org}")
 
             deployments.append(f"{cloudlet_name}:{cloudlet_org}:{cluster_name}:{cluster_org}")
 
