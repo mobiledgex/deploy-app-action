@@ -1,9 +1,12 @@
 #!/usr/local/bin/python
 
 import argparse
+from datetime import datetime, timedelta
 import json
 import os
 import requests
+from requests.exceptions import ConnectionError, Timeout
+import time
 import sys
 import yaml
 
@@ -70,7 +73,7 @@ def get_mc(console, username, password):
     token = r.json()["token"]
     apibase = f"{console}/api/v1/auth"
 
-    def mc(path, method="POST", headers={}, data={},
+    def mc(path, method="POST", timeout=300, headers={}, data={},
            success_codes=[requests.codes.ok], **kwargs):
         req_hdrs = {
             "Accept": "application/json",
@@ -84,7 +87,8 @@ def get_mc(console, username, password):
 
         r = requests.request(method, f"{apibase}/{path}",
                              headers=req_hdrs,
-                             json=req_data)
+                             json=req_data,
+                             timeout=timeout)
         if r.status_code not in success_codes:
             log(f"MC call failed: {console} {path}: {r.status_code} {r.text}")
             die(f"MC call failed: {path}, {r.status_code}")
@@ -113,6 +117,43 @@ def check_status(resp):
                 else:
                     debug(item["result"].get("message"))
     return success
+
+def create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster_name, flavor):
+    data = {
+        "clusterinst": {
+            "flavor": {
+                "name": flavor,
+            },
+            "key": {
+                "cloudlet_key": {
+                    "name": cloudlet_name,
+                    "organization": cloudlet_org,
+                },
+                "cluster_key": {
+                    "name": cluster_name,
+                },
+                "organization": cluster_org,
+            },
+        },
+        "region": region,
+    }
+    clusters = mc("ctrl/ShowClusterInst", data=data)
+    if not clusters:
+        log(f"Creating cluster: {cluster_name}")
+        start = datetime.now()
+        try:
+            mc("ctrl/CreateClusterInst", data=data, timeout=30)
+        except (ConnectionError, Timeout):
+            # Check to see if the cluster is ready
+            timeout = timedelta(minutes=30)
+            while datetime.now() - start < timeout:
+                clusters = mc("ctrl/ShowClusterInst", data=data)
+                if clusters and clusters["state"] == 5:
+                    # Cluster is ready
+                    return
+                time.sleep(10)
+
+        raise Exception("Timed out waiting for cluster")
 
 def main(args):
     actions = []
@@ -144,6 +185,12 @@ def main(args):
         console = "https://console.mobiledgex.net"
     else:
         console = f"https://console-{args.setup}.mobiledgex.net"
+
+    # Get app flavor for cluster creation
+    try:
+        flavor = app["app"]["default_flavor"]["name"]
+    except KeyError:
+        flavor = "m4.small"
 
     mc = get_mc(console, username=os.getenv("INPUT_USERNAME"),
 		password=os.getenv("INPUT_PASSWORD"))
@@ -181,6 +228,8 @@ def main(args):
                 cloudlet_org = clusterinst_key["cloudlet_key"]["organization"]
             except Exception as e:
                 raise Exception(f"Failed to load app instances definition: {e}")
+
+            create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster_name, flavor)
 
             existing_appinst = mc("ctrl/ShowAppInst", data=appinst)
             if existing_appinst:
