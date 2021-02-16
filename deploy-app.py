@@ -118,9 +118,11 @@ def check_status(resp):
                     debug(item["result"].get("message"))
     return success
 
-def create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster_name, flavor):
+def create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster_name, flavor,
+                   deployment="kubernetes"):
     data = {
         "clusterinst": {
+            "deployment": deployment,
             "flavor": {
                 "name": flavor,
             },
@@ -139,7 +141,7 @@ def create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster
     }
     clusters = mc("ctrl/ShowClusterInst", data=data)
     if not clusters:
-        log(f"Creating cluster: {cluster_name}")
+        log(f"Creating {flavor} {deployment} cluster: {cluster_name}")
         start = datetime.now()
         try:
             mc("ctrl/CreateClusterInst", data=data, timeout=30)
@@ -186,11 +188,13 @@ def main(args):
     else:
         console = f"https://console-{args.setup}.mobiledgex.net"
 
-    # Get app flavor for cluster creation
+    # Get app flavor and deployment for cluster creation
     try:
         flavor = app["app"]["default_flavor"]["name"]
+        deployment = app["app"]["deployment"]
     except KeyError:
         flavor = "m4.small"
+        deployment = "kubernetes"
 
     mc = get_mc(console, username=os.getenv("INPUT_USERNAME"),
 		password=os.getenv("INPUT_PASSWORD"))
@@ -229,7 +233,8 @@ def main(args):
             except Exception as e:
                 raise Exception(f"Failed to load app instances definition: {e}")
 
-            create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster_name, flavor)
+            create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster_name, flavor,
+                           deployment=deployment)
 
             existing_appinst = mc("ctrl/ShowAppInst", data=appinst)
             if existing_appinst:
