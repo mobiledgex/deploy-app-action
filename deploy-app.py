@@ -139,8 +139,28 @@ def create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster
         },
         "region": region,
     }
-    clusters = mc("ctrl/ShowClusterInst", data=data)
-    if not clusters:
+    search_data = {
+        "clusterinst": {
+            "key": data["clusterinst"]["key"],
+        },
+        "region": data["region"],
+    }
+    cluster = mc("ctrl/ShowClusterInst", data=search_data)
+    if cluster:
+        # Validate cluster parameters
+        mismatches = []
+        reqd_cluster = data["clusterinst"]
+        if cluster["flavor"]["name"] != reqd_cluster["flavor"]["name"]:
+            mismatches.append(("flavor", reqd_cluster["flavor"]["name"]))
+        if cluster["deployment"] != reqd_cluster["deployment"]:
+            mismatches.append(("deployment", reqd_cluster["deployment"]))
+
+        if mismatches:
+            mismatch_desc = ", ".join(
+                ["{} != {}".format(x[0], x[1]) for x in mismatches])
+            raise Exception("Cluster \"{}\" present but has incompatible config: {}".format(
+                            cluster_name, mismatch_desc))
+    else:
         log(f"Creating {flavor} {deployment} cluster: {cluster_name}")
         start = datetime.now()
         try:
@@ -154,8 +174,7 @@ def create_cluster(mc, region, cloudlet_org, cloudlet_name, cluster_org, cluster
                     # Cluster is ready
                     return
                 time.sleep(10)
-
-        raise Exception("Timed out waiting for cluster")
+            raise Exception("Timed out waiting for cluster")
 
 def main(args):
     actions = []
