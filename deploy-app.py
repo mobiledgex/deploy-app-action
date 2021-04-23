@@ -188,6 +188,23 @@ def main(args):
 
     with open(args.appconfig) as f:
         app = yaml.load(f, Loader=yaml.Loader)
+        # Accept aliases for app definition keys
+        for (key, alias) in (("access_ports", "accessports"),
+                             ("default_flavor", "defaultflavor"),
+                             ("image_path", "imagepath"),
+                             ("image_type", "imagetype")):
+            if key not in app["app"] and alias in app["app"]:
+                app["app"][key] = app["app"][alias]
+                del app["app"][alias]
+
+        # Accept string values for image type
+        image_type_codes = {
+            "ImageTypeDocker": 1,
+            "ImageTypeQcow": 2,
+            "ImageTypeHelm": 3,
+        }
+        if app["app"]["image_type"] in image_type_codes:
+            app["app"]["image_type"] = image_type_codes[app["app"]["image_type"]]
 
     try:
         region = app["region"]
